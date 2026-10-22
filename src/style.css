@@ -10,12 +10,15 @@
   --paper: #fbf9f9;
   --green: #628b76;
   --yellow: #fff7d6;
+  --phone-width: 440px;
+  --phone-height: 956px;
 }
 * {
   box-sizing: border-box;
 }
 body {
   margin: 0;
+  overflow: hidden;
 }
 button,
 input,
@@ -66,21 +69,25 @@ textarea::placeholder {
   color: #a5a0a0;
 }
 .stage {
-  min-height: 100dvh;
-  display: flex;
-  justify-content: center;
-  align-items: flex-start;
+  height: 100dvh;
+  display: grid;
+  place-items: center;
   padding: 24px 0;
+  overflow: hidden;
 }
 .phone {
   position: relative;
-  width: 390px;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--phone-width), 100%);
+  height: min(var(--phone-height), calc(100dvh - 48px));
+  min-height: 0;
   background: var(--paper);
-  min-height: 844px;
   box-shadow: 0 5px 30px #00000009;
   overflow: hidden;
 }
 .status-bar {
+  flex: 0 0 44px;
   height: 44px;
   display: flex;
   align-items: center;
@@ -100,11 +107,21 @@ textarea::placeholder {
   margin-left: 2px;
 }
 .phone-scroll {
-  min-height: 775px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   padding-bottom: 18px;
 }
-.phone-scroll.has-nav {
-  padding-bottom: 105px;
+.phone-scroll::-webkit-scrollbar,
+.message-thread::-webkit-scrollbar {
+  display: none;
+}
+.phone-scroll.chat-page {
+  overflow: hidden;
+  padding-bottom: 0;
 }
 .screen {
   padding: 0 25px;
@@ -396,14 +413,12 @@ textarea::placeholder {
   user-select: none;
 }
 .home-indicator {
+  flex: 0 0 17px;
   height: 17px;
   display: flex;
   align-items: center;
   justify-content: center;
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  position: relative;
   background: var(--paper);
   z-index: 8;
 }
@@ -414,10 +429,8 @@ textarea::placeholder {
   border-radius: 5px;
 }
 .bottom-nav {
-  position: absolute;
-  bottom: 16px;
-  left: 0;
-  right: 0;
+  position: relative;
+  flex: 0 0 72px;
   height: 72px;
   background: #fff;
   display: flex;
@@ -466,12 +479,11 @@ textarea::placeholder {
   height: 28px;
 }
 .toast {
-  position: fixed;
-  bottom: 105px;
+  position: absolute;
+  bottom: 33px;
   left: 50%;
   transform: translateX(-50%);
-  width: 340px;
-  max-width: 90vw;
+  width: calc(100% - 50px);
   padding: 13px 16px;
   border-radius: 12px;
   display: flex;
@@ -483,6 +495,9 @@ textarea::placeholder {
   line-height: 1.6;
   z-index: 30;
   box-shadow: 0 5px 25px #0002;
+}
+.phone.with-nav .toast {
+  bottom: 105px;
 }
 .toast svg {
   flex-shrink: 0;
@@ -496,12 +511,17 @@ textarea::placeholder {
 }
 .verification .phone-scroll {
   padding: 0;
-  min-height: 783px;
+}
+.verification-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
 }
 .verification .home-indicator {
   background: var(--paper);
 }
 .verification-brand {
+  flex: 0 0 248px;
   height: 248px;
   position: relative;
   display: flex;
@@ -536,10 +556,11 @@ textarea::placeholder {
   font-size: 12px;
 }
 .verification-panel {
+  flex: 1;
   border-radius: 48px 48px 0 0;
   background: var(--paper);
   padding: 30px 25px 29px;
-  min-height: 535px;
+  min-height: 0;
 }
 .verification-panel h2 {
   text-align: center;
@@ -1368,10 +1389,12 @@ textarea::placeholder {
 .chat-screen {
   display: flex;
   flex-direction: column;
-  min-height: 783px;
-  padding-bottom: 16px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 .chat-top {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 11px;
@@ -1400,6 +1423,7 @@ textarea::placeholder {
   align-items: center;
 }
 .chat-item {
+  flex-shrink: 0;
   margin: 0 25px 10px;
   padding: 12px;
   background: white;
@@ -1427,6 +1451,11 @@ textarea::placeholder {
   color: #b63a3a;
 }
 .message-thread {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   display: flex;
   flex-direction: column;
   gap: 23px;
@@ -1439,6 +1468,7 @@ textarea::placeholder {
   color: #b7adad;
 }
 .message-wrap {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1478,6 +1508,7 @@ textarea::placeholder {
   color: #b8adad;
 }
 .pickup-message {
+  flex-shrink: 0;
   background: var(--yellow);
   border-radius: 17px;
   padding: 15px;
@@ -1516,6 +1547,7 @@ textarea::placeholder {
   margin-top: 4px;
 }
 .chat-input {
+  flex-shrink: 0;
   display: flex;
   gap: 12px;
   align-items: center;
@@ -1543,6 +1575,7 @@ textarea::placeholder {
   border-radius: 14px;
 }
 .attachment-preview {
+  flex-shrink: 0;
   padding: 0 25px;
   display: flex;
   gap: 10px;
@@ -1958,24 +1991,23 @@ textarea::placeholder {
   padding: 24px;
 }
 .sheet-overlay {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 20;
   background: #23171766;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: center;
-  padding: 20px;
   backdrop-filter: blur(3px);
 }
 .sheet {
   position: relative;
-  width: 360px;
+  width: 100%;
   max-width: 100%;
   background: var(--paper);
-  padding: 29px 23px 25px;
-  border-radius: 28px;
-  max-height: 88dvh;
+  padding: 29px 23px 34px;
+  border-radius: 28px 28px 0 0;
+  max-height: calc(100% - 44px);
   overflow: auto;
   box-shadow: 0 10px 50px #0002;
 }
@@ -2108,84 +2140,14 @@ textarea::placeholder {
   .phone {
     border-radius: 3px;
   }
-  .stage {
-    padding: 28px 0 50px;
-  }
 }
 @media (max-width: 599px) {
-  :root {
-    background: var(--paper);
-  }
   .stage {
     padding: 0;
-    min-height: 100dvh;
   }
   .phone {
-    width: 100%;
-    min-height: 100dvh;
-    max-width: 430px;
+    height: min(var(--phone-height), 100dvh);
     box-shadow: none;
-  }
-  .phone-scroll {
-    min-height: calc(100dvh - 61px);
-  }
-  .verification .phone-scroll {
-    min-height: calc(100dvh - 61px);
-  }
-  .chat-screen {
-    min-height: calc(100dvh - 61px);
-  }
-  .sheet-overlay {
-    align-items: flex-end;
-    padding: 0;
-  }
-  .sheet {
-    width: 430px;
-    max-width: 100%;
-    border-radius: 30px 30px 0 0;
-    padding-bottom: 32px;
-    max-height: 90dvh;
-  }
-  .toast {
-    bottom: 105px;
-  }
-  .phone {
-    overflow: clip;
-  }
-  .verification-panel {
-    min-height: calc(100dvh - 292px);
-  }
-  .status-bar {
-    height: 44px;
-  }
-  .phone-scroll.has-nav {
-    padding-bottom: 110px;
-  }
-  .bottom-nav {
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100%;
-    max-width: 430px;
-    bottom: 16px;
-  }
-  .home-indicator {
-    position: fixed;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 100%;
-    max-width: 430px;
-    bottom: 0;
-  }
-  .chat-input {
-    position: sticky;
-    bottom: 17px;
-  }
-  .chat-screen {
-    padding-bottom: 16px;
-  }
-  .gallery-sheet > .photo {
-    height: 380px;
   }
 }
 @media (max-width: 360px) {
@@ -2261,7 +2223,4 @@ textarea::placeholder {
 }
 .pickup-panel {
   background: none;
-}
-.phone-scroll.has-nav {
-  padding-bottom: 105px;
 }

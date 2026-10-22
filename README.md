@@ -1,6 +1,6 @@
 # Trojan Marketplace
 
-An interactive mobile demo that follows the supplied nine-screen prototype, beginning with USC email verification. On a desktop, the app keeps the same centered phone layout.
+An interactive mobile demo that follows the supplied nine-screen prototype, beginning with USC email verification. Every screen uses the same iPhone 17 Pro Max reference frame (440 × 956 CSS pixels). Longer pages scroll inside the frame; status, navigation, and the home indicator stay in place. On smaller displays, the frame fits the available viewport without changing size between pages. Chat scrolls messages independently while keeping its header and composer visible. Dialogs stay inside the phone frame.
 
 ## Run on your Mac
 

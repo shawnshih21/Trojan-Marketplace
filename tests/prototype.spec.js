@@ -290,7 +290,7 @@ test("desktop retains the supplied mobile format without horizontal overflow", a
     await page
       .locator(".phone")
       .evaluate((e) => Math.round(e.getBoundingClientRect().width)),
-  ).toBe(390);
+  ).toBe(440);
   await verify(page);
   await page.setViewportSize({ width: 320, height: 750 });
   expect(

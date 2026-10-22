@@ -593,7 +593,10 @@ function App() {
   }
   return (
     <div className="stage">
-      <div className={"phone " + (screen === "verify" ? "verification" : "")}>
+      <div
+        className={`phone ${screen === "verify" ? "verification" : ""} ${showNav ? "with-nav" : ""}`}
+        data-screen={screen}
+      >
         <div className="status-bar">
           <b>9:41</b>
           <span>
@@ -602,7 +605,7 @@ function App() {
             <BatteryFull size={22} fill="currentColor" />
           </span>
         </div>
-        <div className={"phone-scroll " + (showNav ? "has-nav" : "")}>
+        <div className={`phone-scroll ${screen === "chat" ? "chat-page" : ""}`}>
           {screen === "verify" && (
             <div className="verification-page">
               <div className="verification-brand">
