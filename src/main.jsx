@@ -58,6 +58,23 @@ import "@fontsource/dm-sans/400.css";
 import "@fontsource/dm-sans/500.css";
 import "@fontsource/dm-sans/600.css";
 import "@fontsource/dm-sans/700.css";
+import CampusMap from "./CampusMap";
+import StudyPanel from "./StudyPanel";
+import TransactionOutcome from "./TransactionOutcome";
+import {
+  AREAS,
+  emptyStudy,
+  normalizeState,
+  listingError,
+  termsError,
+  activePickup,
+  statusLabel,
+  syncTransactions,
+  pickupEvent,
+  proposePickup,
+  canChangeListingStatus,
+  measurement,
+} from "./marketplace";
 import "./style.css";
 const KEY = "trojan-prototype-v2";
 const defaults = {
@@ -72,12 +89,16 @@ const defaults = {
     { id: 2, text: "Priya sent a message about your bookshelf.", read: false },
   ],
   reminders: true,
+  study: emptyStudy(),
 };
 function load() {
   try {
-    return { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || "{}") };
+    return normalizeState(
+      { ...defaults, ...JSON.parse(localStorage.getItem(KEY) || "{}") },
+      INITIAL_ITEMS,
+    );
   } catch {
-    return defaults;
+    return normalizeState(defaults, INITIAL_ITEMS);
   }
 }
 const shortDate = (d) =>
@@ -97,14 +118,6 @@ const time = (t) => {
   if (!t) return "";
   const [h, m] = t.split(":");
   return `${+h % 12 || 12}:${m} ${+h >= 12 ? "PM" : "AM"}`;
-};
-const measurement = (value) => {
-  const text = String(value).trim();
-  if (/^\d+(?:\.\d+)?$/.test(text)) return Number(text);
-  const parts = text.match(/^(?:(\d+)\s+)?(\d+)\/(\d+)$/);
-  return parts && Number(parts[3]) > 0
-    ? Number(parts[1] || 0) + Number(parts[2]) / Number(parts[3])
-    : NaN;
 };
 const stamp = () =>
   new Date().toLocaleTimeString("en-US", {
@@ -193,6 +206,7 @@ function App() {
   const [filters, setFilters] = useState({
     max: 250,
     condition: "All",
+    area: "All",
     distance: 2,
     width: "",
     sort: "Recommended",
@@ -231,7 +245,8 @@ function App() {
   useEffect(() => {
     chatBottom.current?.scrollIntoView({ block: "nearest" });
   }, [state.chats, screen]);
-  const update = (patch) => setState((s) => ({ ...s, ...patch }));
+  const update = (patch) =>
+    setState((s) => syncTransactions({ ...s, ...patch }));
   const notify = (t) => {
     setToast(t);
     clearTimeout(toastRef.current);
@@ -272,10 +287,6 @@ function App() {
     pickup?.role === "selling"
       ? pickup?.buyerConfirmed
       : pickup?.sellerConfirmed;
-  const ownConfirmKey =
-    pickup?.role === "selling" ? "sellerConfirmed" : "buyerConfirmed";
-  const otherConfirmKey =
-    pickup?.role === "selling" ? "buyerConfirmed" : "sellerConfirmed";
   const otherRole = pickup?.role === "selling" ? "buyer" : "seller";
   const chat = state.chats.find((c) => c.id === chatId);
   const chatItem = items.find((i) => i.id === chat?.item);
@@ -339,6 +350,10 @@ function App() {
             height: "",
             seller: "maya",
             description: "",
+            area: "",
+            deadline: "2026-10-28",
+            defectState: "",
+            defects: "",
             date: "2026-10-24",
             start: "10:00",
             end: "14:00",
@@ -347,41 +362,40 @@ function App() {
     );
     go("edit");
   };
-  const pickupFor = (id) =>
-    state.pickups.find(
-      (p) => p.item === id && !["canceled", "completed"].includes(p.status),
-    );
+  const pickupFor = (id) => activePickup(state.pickups, id);
+  const ownRole = pickup?.role === "selling" ? "seller" : "buyer";
+  const otherActor = ownRole === "buyer" ? "seller" : "buyer";
   const createPickup = (item) => {
     const existing = pickupFor(item.id);
     if (existing) {
       go("pickup", { pickup: existing.id });
       return;
     }
-    const p = {
-      id: "pickup-" + Date.now(),
-      item: item.id,
-      person: item.seller === "maya" ? "priya" : item.seller,
+    if (item.status !== "available") {
+      notify("This item is no longer available.");
+      return;
+    }
+    setSheet({
+      type: "propose",
+      item,
       date: item.date,
       start: item.start,
       end: item.end,
-      buyerConfirmed: item.seller !== "maya",
-      sellerConfirmed: item.seller === "maya",
       meeting: "",
-      status: "requested",
-      role: item.seller === "maya" ? "selling" : "buying",
-      reminder: state.reminders,
-    };
-    update({ pickups: [p, ...state.pickups] });
-    go("pickup", { pickup: p.id });
-    notify(
-      `Reservation requested in this demo. ${item.seller === "maya" ? "Buyer" : "Seller"} confirmation is pending.`,
-    );
+    });
+  };
+  const applyEvent = (event, actor = ownRole) => {
+    try {
+      const next = pickupEvent(state, pickup.id, event, actor);
+      setState(next);
+      return next.pickups.find((p) => p.id === pickup.id);
+    } catch (error) {
+      notify(error.message);
+      return false;
+    }
   };
   const changePickup = (changes) => {
     const next = { ...pickup, ...changes };
-    if (next.status !== "completed" && next.status !== "canceled")
-      next.status =
-        next.buyerConfirmed && next.sellerConfirmed ? "confirmed" : "requested";
     update({
       pickups: state.pickups.map((p) => (p.id === pickup.id ? next : p)),
     });
@@ -510,25 +524,20 @@ function App() {
           </small>
         )}
       </span>
+      {i.status !== "available" && (
+        <Pill tone={i.status === "reserved" ? "yellow" : "neutral"}>
+          {statusLabel(i.status)}
+        </Pill>
+      )}
       {right || <strong>${i.price}</strong>}
     </button>
   );
   const map = (item = selected, big = false) => (
-    <div className={"mini-map " + (big ? "big" : "")}>
-      <div className="map-green" />
-      <div className="map-tan" />
-      <div className="map-street horizontal">W Jefferson Blvd</div>
-      <div className="map-street vertical" />
-      <span className="map-campus">USC campus</span>
-      <button
-        className="map-label"
-        onClick={() => setSheet({ type: "location", item })}
-      >
-        <MapPin size={13} />
-        {item.location} area
-      </button>
-      <span className="map-legend">Approximate area · Not to scale</span>
-    </div>
+    <CampusMap
+      focus={item}
+      big={big}
+      onArea={(i) => setSheet({ type: "location", item: i })}
+    />
   );
   const bottomNav = ["browse", "activity", "create", "inbox", "profile"];
   const navIcons = [Home, Bookmark, Plus, MessageCircle, User];
@@ -544,10 +553,11 @@ function App() {
   const filtered = items
     .filter(
       (i) =>
-        i.status === "available" &&
+        ["available", "reserved"].includes(i.status) &&
         (category === "All" || i.category === category) &&
         `${i.name} ${i.location}`.toLowerCase().includes(query.toLowerCase()) &&
         i.price <= filters.max &&
+        (filters.area === "All" || i.area === filters.area) &&
         (filters.condition === "All" || i.condition === filters.condition) &&
         i.distance <= filters.distance &&
         (!filters.width || measurement(i.width) <= +filters.width),
@@ -563,6 +573,9 @@ function App() {
     return (
       <article className="product-card" key={i.id}>
         <div className="product-cover">
+          <span className={"product-state " + i.status}>
+            {statusLabel(i.status)}
+          </span>
           <Photo item={i} onClick={() => go("detail", { item: i.id })} />
           <button
             className={
@@ -587,6 +600,9 @@ function App() {
             <small>{i.location}</small>
           </span>
           <small>{i.condition} condition · USC verified</small>
+          <small className="deadline-hint">
+            Sell by {i.deadline ? shortDate(i.deadline) : "Not provided"}
+          </small>
         </button>
       </article>
     );
@@ -798,6 +814,7 @@ function App() {
                   Filters
                   {(filters.max < 250 ||
                     filters.condition !== "All" ||
+                    filters.area !== "All" ||
                     filters.width ||
                     filters.distance < 2) &&
                     " •"}
@@ -845,20 +862,11 @@ function App() {
               {mapView ? (
                 <>
                   <div className="browse-map">
-                    {map(filtered[0] || items[0], true)}
-                    {filtered.slice(0, 5).map((i, n) => (
-                      <button
-                        className="map-price"
-                        key={i.id}
-                        style={{
-                          left: 12 + n * 16 + "%",
-                          top: 20 + ((n * 23) % 58) + "%",
-                        }}
-                        onClick={() => go("detail", { item: i.id })}
-                      >
-                        ${i.price}
-                      </button>
-                    ))}
+                    <CampusMap
+                      items={filtered}
+                      big
+                      onItem={(i) => go("detail", { item: i.id })}
+                    />
                   </div>
                   <p className="muted fine">
                     {filtered.length} finds · Approximate locations only
@@ -882,6 +890,7 @@ function App() {
                       setFilters({
                         max: 250,
                         condition: "All",
+                        area: "All",
                         distance: 2,
                         width: "",
                         sort: "Recommended",
@@ -903,14 +912,14 @@ function App() {
                 </button>
               </div>
               <div className="compact-list">
-                {(query || category !== "All"
-                  ? filtered.slice(2)
-                  : [
-                      items.find((i) => i.id === "loveseat"),
-                      items.find((i) => i.id === "bed"),
-                      ...filtered.slice(4),
-                    ].filter(Boolean)
-                )
+                {filtered
+                  .slice(2)
+                  .sort((a, b) => {
+                    const order = ["loveseat", "bed"];
+                    const rank = (id) =>
+                      order.includes(id) ? order.indexOf(id) : 2;
+                    return rank(a.id) - rank(b.id);
+                  })
                   .slice(0, 2)
                   .map((i) => compact(i))}
               </div>
@@ -1011,8 +1020,16 @@ function App() {
                   short walk from campus
                 </p>
                 <div className="pill-row">
-                  <Pill tone={selected.status === "sold" ? "neutral" : "green"}>
-                    {selected.status === "sold" ? "Sold" : "Available"}
+                  <Pill
+                    tone={
+                      selected.status === "reserved"
+                        ? "yellow"
+                        : selected.status === "sold"
+                          ? "neutral"
+                          : "green"
+                    }
+                  >
+                    {statusLabel(selected.status)}
                   </Pill>
                   <Pill tone="rose">{selected.condition} condition</Pill>
                   <Pill>{selected.color || "Furniture"}</Pill>
@@ -1064,6 +1081,24 @@ function App() {
                 {selected.description ||
                   "Add a description to help your fellow Trojans."}
               </p>
+              <h2 className="block-heading">Defects & wear</h2>
+              <p className="body-copy">
+                {selected.defectState === "none"
+                  ? "No known defects declared by the seller."
+                  : selected.defects ||
+                    "Not declared — ask the seller before reserving."}
+              </p>
+              <div className="deadline-card">
+                <CalendarDays size={18} />
+                <div>
+                  <b>Seller’s sell-by deadline</b>
+                  <span>
+                    {selected.deadline
+                      ? longDate(selected.deadline)
+                      : "Not provided — contact the seller"}
+                  </span>
+                </div>
+              </div>
               <h2 className="block-heading">Dimensions · inches</h2>
               <div className="dimensions">
                 {[
@@ -1159,7 +1194,11 @@ function App() {
               <div className="listing-status">
                 <span>Your listing · {state.profile.name}</span>
                 <Pill tone="green">
-                  {draft.status === "sold" ? "Sold" : "Active"}
+                  {draft.status === "reserved"
+                    ? "Reserved"
+                    : draft.status === "sold"
+                      ? "Sold"
+                      : "Active"}
                 </Pill>
               </div>
               <div className="field-title">
@@ -1242,24 +1281,30 @@ function App() {
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
-                  if (!draft.photos.length && !draft.views) {
-                    notify("Add at least one photo before publishing.");
+                  if (!state.profile.verified) {
+                    notify("Verify your USC email before publishing.");
                     return;
                   }
+                  const error = listingError(draft);
+                  if (error) {
+                    notify(error);
+                    return;
+                  }
+                  const reservation = pickupFor(draft.id);
                   if (
-                    [draft.width, draft.depth, draft.height].some(
-                      (value) =>
-                        !Number.isFinite(measurement(value)) ||
-                        measurement(value) <= 0,
-                    )
+                    reservation &&
+                    (reservation.date > draft.deadline ||
+                      Number(draft.price) !==
+                        Number(items.find((i) => i.id === draft.id)?.price) ||
+                      ["date", "start", "end", "location", "area"].some(
+                        (key) =>
+                          draft[key] !==
+                          items.find((i) => i.id === draft.id)?.[key],
+                      ))
                   ) {
                     notify(
-                      "Enter positive dimensions, such as 24, 19.5, or 41 3/8.",
+                      "Manage the active reservation before changing price, pickup availability, or area. The deadline cannot precede its pickup.",
                     );
-                    return;
-                  }
-                  if (draft.end <= draft.start) {
-                    notify("Pickup end time must be after the start time.");
                     return;
                   }
                   update({
@@ -1372,6 +1417,65 @@ function App() {
                       setDraft({ ...draft, description: e.target.value })
                     }
                   />
+                </label>
+                <label className="field">
+                  Defects & wear
+                  <select
+                    required
+                    aria-label="Defects & wear"
+                    value={draft.defectState}
+                    onChange={(e) =>
+                      setDraft({
+                        ...draft,
+                        defectState: e.target.value,
+                        defects: e.target.value === "none" ? "" : draft.defects,
+                      })
+                    }
+                  >
+                    <option value="">Choose a disclosure</option>
+                    <option value="none">No known defects</option>
+                    <option value="disclosed">Disclose defects or wear</option>
+                  </select>
+                </label>
+                {draft.defectState === "disclosed" && (
+                  <label className="field">
+                    Describe defects
+                    <input
+                      required
+                      maxLength={1000}
+                      value={draft.defects}
+                      onChange={(e) =>
+                        setDraft({ ...draft, defects: e.target.value })
+                      }
+                    />
+                  </label>
+                )}
+                <label className="field">
+                  Sell-by deadline
+                  <input
+                    required
+                    type="date"
+                    value={draft.deadline}
+                    onChange={(e) =>
+                      setDraft({ ...draft, deadline: e.target.value })
+                    }
+                  />
+                </label>
+                <label className="field">
+                  Pickup neighborhood
+                  <select
+                    required
+                    aria-label="Pickup neighborhood"
+                    value={draft.area}
+                    onChange={(e) =>
+                      setDraft({ ...draft, area: e.target.value })
+                    }
+                  >
+                    <option value="">Choose a pickup area</option>
+                    {AREAS.map((area) => (
+                      <option key={area}>{area}</option>
+                    ))}
+                  </select>
                 </label>
                 <label className="field">
                   Approximate pickup area
@@ -1574,8 +1678,9 @@ function App() {
                     </b>
                     <Pill tone="yellow">
                       {pickupFor(chatItem.id)
-                        ? "Reserved for you"
-                        : "View listing"}
+                        ? "Reserved · " +
+                          statusLabel(pickupFor(chatItem.id).status)
+                        : statusLabel(chatItem.status)}
                     </Pill>
                   </span>
                   <ChevronRight size={18} />
@@ -1609,11 +1714,7 @@ function App() {
                   >
                     <span>
                       <CalendarDays size={19} />
-                      <b>
-                        {pickupFor(chatItem.id).status === "confirmed"
-                          ? "Pickup confirmed"
-                          : "Pickup proposed"}
-                      </b>
+                      <b>{statusLabel(pickupFor(chatItem.id).status)}</b>
                     </span>
                     <small>
                       {shortDate(pickupFor(chatItem.id).date)},{" "}
@@ -1721,31 +1822,28 @@ function App() {
                 <span className="drag-handle" />
                 <div className="section-title">
                   <h2>Your pickup</h2>
-                  <Pill tone={pickup.status === "canceled" ? "rose" : "green"}>
-                    <Check size={11} />
-                    {pickup.status === "confirmed"
-                      ? "Confirmed"
-                      : pickup.status === "completed"
-                        ? "Completed"
-                        : pickup.status === "canceled"
-                          ? "Canceled"
-                          : "Pending"}
+                  <Pill
+                    tone={
+                      pickup.status === "issue_open"
+                        ? "rose"
+                        : pickup.status === "confirmed" ||
+                            pickup.status === "completed"
+                          ? "green"
+                          : "yellow"
+                    }
+                  >
+                    {statusLabel(pickup.status)}
                   </Pill>
                 </div>
                 <div className="confirmation-box">
                   <div>
-                    <b>
-                      {pickup.status === "confirmed"
-                        ? "Pickup confirmed"
-                        : pickup.status === "completed"
-                          ? "Pickup completed"
-                          : pickup.status === "canceled"
-                            ? "Pickup canceled"
-                            : "Pickup requested"}
-                    </b>
+                    <b>{statusLabel(pickup.status)}</b>
                     <CalendarDays size={20} />
                   </div>
-                  <p>Meeting point shared after both students confirm.</p>
+                  <p>
+                    Both participants review the same pickup proposal. Public
+                    listings show only an approximate area.
+                  </p>
                   <div className="confirmation-person">
                     <span className="initials pink">MC</span>
                     <span>
@@ -1820,7 +1918,7 @@ function App() {
                           Shared
                         </>
                       ) : (
-                        "Private"
+                        "Proposed"
                       )}
                     </Pill>
                   </div>
@@ -1829,20 +1927,45 @@ function App() {
                     <div>
                       <span>Approximate area</span>
                       <b>{pickupItem.location}</b>
-                      <p>Meeting point shared after both students confirm.</p>
-                      {pickup.buyerConfirmed && pickup.sellerConfirmed ? (
-                        <p className="exact-meeting">
-                          {pickup.meeting ||
-                            "Coordinate an exact public meeting point in chat."}
-                        </p>
-                      ) : (
-                        <p className="exact-meeting">
-                          Exact meeting point is hidden until confirmation.
-                        </p>
-                      )}
+                      <p>
+                        Both participants review the same pickup proposal.
+                        Public listings show only an approximate area.
+                      </p>
+                      <p className="exact-meeting">
+                        {pickup.meeting ||
+                          "No public meeting point proposed. Reschedule to add complete terms."}
+                      </p>
+                      <p className="fine muted">
+                        {pickup.buyerConfirmed && pickup.sellerConfirmed
+                          ? "Confirmed by both participants."
+                          : "Proposed · awaiting confirmation. Visible to the transaction participants only in this demo."}
+                      </p>
                     </div>
                   </div>
                 </div>
+                <TransactionOutcome
+                  pickup={pickup}
+                  ownRole={ownRole}
+                  onEvent={applyEvent}
+                  notify={notify}
+                  onComplete={() => setSheet({ type: "complete" })}
+                  onReport={() =>
+                    setSheet({
+                      type: "transaction-issue",
+                      actor: ownRole,
+                      category: "No-show",
+                      severity: "Medium",
+                      description: "",
+                    })
+                  }
+                  onResolve={(issue) =>
+                    setSheet({
+                      type: "resolve-issue",
+                      issueId: issue.id,
+                      note: "",
+                    })
+                  }
+                />
                 {!["completed", "canceled"].includes(pickup.status) && (
                   <>
                     <div className="pickup-seller">
@@ -1872,32 +1995,25 @@ function App() {
                         Reschedule
                       </button>
                     </div>
-                    {!ownConfirmed && (
+                    {pickup.status === "requested" && !ownConfirmed && (
                       <button
                         className="primary full"
                         onClick={() => {
-                          changePickup({ [ownConfirmKey]: true });
-                          notify("Your pickup details are confirmed.");
+                          if (applyEvent({ type: "confirm_terms" }))
+                            notify("Your pickup details are confirmed.");
                         }}
                       >
                         Confirm pickup
                       </button>
                     )}
-                    {!otherConfirmed && (
+                    {pickup.status === "requested" && !otherConfirmed && (
                       <button
                         className="secondary full demo-confirm"
                         onClick={() => {
-                          changePickup({
-                            [otherConfirmKey]: true,
-                            meeting:
-                              pickup.meeting ||
-                              (pickupItem.location === "USC Village"
-                                ? "Hoover St entrance to USC Village, beside the outdoor seating"
-                                : `Public entrance near ${pickupItem.location}. Confirm the exact spot in chat.`),
-                          });
-                          notify(
-                            `${otherRole === "seller" ? "Seller" : "Buyer"} confirmation simulated. Meeting point is now shared.`,
-                          );
+                          if (applyEvent({ type: "confirm_terms" }, otherActor))
+                            notify(
+                              `Demo ${otherActor} confirmed the same pickup proposal.`,
+                            );
                         }}
                       >
                         Demo: simulate {otherRole} confirmation
@@ -1960,12 +2076,6 @@ function App() {
                       <ExternalLink size={13} />
                       Open in Google Calendar
                     </a>
-                    <button
-                      className="text-button full"
-                      onClick={() => setSheet({ type: "complete" })}
-                    >
-                      Mark as picked up
-                    </button>
                     <button
                       className="text-button danger full"
                       onClick={() => setSheet({ type: "cancel-pickup" })}
@@ -2039,10 +2149,7 @@ function App() {
                   return (
                     <div className="white-card purchase-card" key={p.id}>
                       {compact(i, {
-                        label:
-                          p.status === "confirmed"
-                            ? "Pickup confirmed"
-                            : "Pickup requested",
+                        label: statusLabel(p.status),
                         onClick: () => go("pickup", { pickup: p.id }),
                       })}
                       <button
@@ -2055,10 +2162,7 @@ function App() {
                             {shortDate(p.date)} · {time(p.start)}–{time(p.end)}
                           </b>
                           <small>
-                            {p.status === "confirmed"
-                              ? "Confirmed"
-                              : "Awaiting confirmation"}{" "}
-                            · Near {i.location}
+                            {statusLabel(p.status)} · Near {i.location}
                           </small>
                         </span>
                       </button>
@@ -2122,7 +2226,11 @@ function App() {
                 .map((i) =>
                   compact(i, {
                     label:
-                      i.status === "sold" ? "Sold" : "Active · 1 new message",
+                      i.status === "reserved"
+                        ? "Reserved"
+                        : i.status === "sold"
+                          ? "Sold"
+                          : "Active · 1 new message",
                     tone: i.status === "sold" ? "neutral" : "yellow",
                     onClick: () => editListing(i),
                   }),
@@ -2193,7 +2301,7 @@ function App() {
                     .map((i) => (
                       <div key={i.id} className="managed-listing">
                         {compact(i, {
-                          label: i.status === "sold" ? "Sold" : "Active",
+                          label: statusLabel(i.status),
                           tone: i.status === "sold" ? "neutral" : "green",
                           onClick: () => editListing(i),
                         })}
@@ -2203,6 +2311,12 @@ function App() {
                           </button>
                           <button
                             onClick={() => {
+                              if (!canChangeListingStatus(state, i)) {
+                                notify(
+                                  "Manage the transaction outcome before changing this listing’s status.",
+                                );
+                                return;
+                              }
                               update({
                                 items: items.map((x) =>
                                   x.id === i.id
@@ -2212,6 +2326,7 @@ function App() {
                                           x.status === "sold"
                                             ? "available"
                                             : "sold",
+                                        soldExternally: x.status !== "sold",
                                       }
                                     : x,
                                 ),
@@ -2364,11 +2479,12 @@ function App() {
                 .filter(
                   (i) =>
                     i.seller === (screen === "profile" ? "maya" : sellerId) &&
-                    i.status === "available",
+                    ["available", "reserved"].includes(i.status),
                 )
                 .map((i) =>
                   compact(i, {
-                    label: "Active listing",
+                    label:
+                      i.status === "reserved" ? "Reserved" : "Active listing",
                     onClick: () =>
                       screen === "profile"
                         ? editListing(i)
@@ -2533,6 +2649,24 @@ function App() {
                     </select>
                   </label>
                   <label className="field">
+                    Pickup area
+                    <select
+                      aria-label="Pickup area"
+                      value={sheet.values.area}
+                      onChange={(e) =>
+                        setSheet({
+                          ...sheet,
+                          values: { ...sheet.values, area: e.target.value },
+                        })
+                      }
+                    >
+                      <option value="All">All pickup areas</option>
+                      {AREAS.map((area) => (
+                        <option key={area}>{area}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
                     Pickup distance
                     <select
                       value={sheet.values.distance}
@@ -2595,6 +2729,7 @@ function App() {
                           values: {
                             max: 250,
                             condition: "All",
+                            area: "All",
                             distance: 2,
                             width: "",
                             sort: "Recommended",
@@ -2809,32 +2944,58 @@ function App() {
                   </p>
                 </>
               )}
-              {sheet.type === "reschedule" && (
+              {["propose", "reschedule"].includes(sheet.type) && (
                 <>
-                  <h2>Reschedule pickup</h2>
+                  <h2>
+                    {sheet.type === "propose"
+                      ? "Propose a pickup"
+                      : "Reschedule pickup"}
+                  </h2>
                   <p className="body-copy">
-                    Propose a new window. Both students need to confirm the
-                    updated details.
+                    Both participants review the same date, time, and public
+                    meeting point. Changes require renewed confirmation. Sell by{" "}
+                    {shortDate((sheet.item || pickupItem).deadline)}.
                   </p>
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      if (sheet.end <= sheet.start) {
-                        notify("End time must be after the start time.");
-                        return;
-                      }
-                      changePickup({
+                      const terms = {
                         date: sheet.date,
                         start: sheet.start,
                         end: sheet.end,
                         meeting: sheet.meeting,
-                        [ownConfirmKey]: true,
-                        [otherConfirmKey]: false,
-                      });
-                      setSheet(null);
-                      notify(
-                        `New pickup proposed. ${otherRole} confirmation is pending.`,
-                      );
+                      };
+                      const error = termsError(terms, sheet.item || pickupItem);
+                      if (error) {
+                        notify(error);
+                        return;
+                      }
+                      if (sheet.type === "propose") {
+                        try {
+                          const result = proposePickup(
+                            state,
+                            sheet.item.id,
+                            terms,
+                            sheet.item.seller === "maya"
+                              ? chat?.item === sheet.item.id
+                                ? chat.person
+                                : "priya"
+                              : sheet.item.seller,
+                          );
+                          setState(result.state);
+                          go("pickup", { pickup: result.pickup.id });
+                          notify(
+                            "Pickup proposed in the demo. The other participant must confirm.",
+                          );
+                        } catch (error) {
+                          notify(error.message);
+                        }
+                      } else if (applyEvent({ type: "reschedule", terms })) {
+                        setSheet(null);
+                        notify(
+                          "New proposal saved. The other participant must confirm the revised details.",
+                        );
+                      }
                     }}
                   >
                     <label className="field">
@@ -2842,6 +3003,7 @@ function App() {
                       <input
                         required
                         type="date"
+                        max={(sheet.item || pickupItem).deadline}
                         value={sheet.date}
                         onChange={(e) =>
                           setSheet({ ...sheet, date: e.target.value })
@@ -2876,14 +3038,25 @@ function App() {
                       Proposed public meeting point
                       <input
                         required
+                        minLength={5}
+                        maxLength={300}
                         value={sheet.meeting}
                         onChange={(e) =>
                           setSheet({ ...sheet, meeting: e.target.value })
                         }
-                        placeholder="e.g. USC Village outdoor seating"
+                        placeholder="e.g. USC Village public outdoor seating"
                       />
                     </label>
-                    <button className="primary full">Propose new pickup</button>
+                    <p className="privacy-note">
+                      <ShieldCheck size={14} />
+                      Only participants review this proposal. Public listing
+                      maps show the approximate neighborhood.
+                    </p>
+                    <button className="primary full">
+                      {sheet.type === "propose"
+                        ? "Send pickup proposal"
+                        : "Propose new pickup"}
+                    </button>
                   </form>
                 </>
               )}
@@ -2904,9 +3077,12 @@ function App() {
                     <button
                       className="primary"
                       onClick={() => {
-                        changePickup({ status: "canceled" });
-                        setSheet(null);
-                        notify("Pickup canceled.");
+                        if (applyEvent({ type: "cancel" })) {
+                          setSheet(null);
+                          notify(
+                            "Pickup canceled. The item is available again.",
+                          );
+                        }
                       }}
                     >
                       Cancel pickup
@@ -2916,30 +3092,220 @@ function App() {
               )}
               {sheet.type === "complete" && (
                 <>
-                  <h2>All picked up?</h2>
+                  <h2>Confirm your handoff</h2>
                   <p className="body-copy">
-                    Confirm that you received the {pickupItem.name}. The
-                    purchase will move to completed history.
+                    Confirm only if you{" "}
+                    {ownRole === "buyer" ? "received" : "handed over"} the{" "}
+                    {pickupItem.name}. It counts as completed only after both
+                    participants confirm. Report a problem instead if the
+                    handoff did not go as agreed.
                   </p>
                   <button
                     className="primary full spaced"
                     onClick={() => {
-                      changePickup({ status: "completed" });
-                      update({
-                        items: items.map((i) =>
-                          i.id === pickupItem.id ? { ...i, status: "sold" } : i,
-                        ),
-                      });
-                      setSheet({ type: "review", stars: 5, text: "" });
-                      notify(
-                        "Pickup marked complete. Thanks for keeping it in the Trojan community!",
-                      );
+                      const result = applyEvent({ type: "confirm_handoff" });
+                      if (result) {
+                        setSheet(null);
+                        notify(
+                          result.status === "completed"
+                            ? "Both handoffs confirmed. Transaction completed."
+                            : "Your handoff is recorded. Awaiting the other participant.",
+                        );
+                      }
                     }}
                   >
-                    Confirm pickup completed
+                    Confirm my handoff
+                  </button>
+                  <button
+                    className="text-button full"
+                    onClick={() =>
+                      setSheet({
+                        type: "transaction-issue",
+                        category: "No-show",
+                        severity: "Medium",
+                        description: "",
+                      })
+                    }
+                  >
+                    Report a transaction issue
                   </button>
                 </>
               )}
+              {sheet.type === "transaction-issue" && (
+                <>
+                  <h2>Report a transaction issue</h2>
+                  <p className="body-copy">
+                    This report is linked to {pickupItem.name} and this pickup.
+                    Unresolved issues are excluded from completed transactions.
+                    No moderator is contacted in this local demo.
+                  </p>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (
+                        applyEvent(
+                          {
+                            type: "report_issue",
+                            category: sheet.category,
+                            severity: sheet.severity,
+                            description: sheet.description,
+                          },
+                          sheet.actor || ownRole,
+                        )
+                      ) {
+                        setSheet(null);
+                        notify(
+                          "Transaction issue recorded. The outcome stays unresolved.",
+                        );
+                      }
+                    }}
+                  >
+                    <label className="field">
+                      Reporting participant
+                      <select
+                        aria-label="Reporting participant"
+                        value={sheet.actor || ownRole}
+                        onChange={(e) =>
+                          setSheet({ ...sheet, actor: e.target.value })
+                        }
+                      >
+                        <option value={ownRole}>You · {ownRole}</option>
+                        <option value={otherActor}>
+                          Demo: simulate {otherActor}
+                        </option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      Issue type
+                      <select
+                        aria-label="Issue type"
+                        value={sheet.category}
+                        onChange={(e) =>
+                          setSheet({ ...sheet, category: e.target.value })
+                        }
+                      >
+                        {[
+                          "No-show",
+                          "Condition or defects",
+                          "Missing item",
+                          "Pickup coordination",
+                          "Other",
+                        ].map((v) => (
+                          <option key={v}>{v}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      Severity
+                      <select
+                        aria-label="Severity"
+                        value={sheet.severity}
+                        onChange={(e) =>
+                          setSheet({ ...sheet, severity: e.target.value })
+                        }
+                      >
+                        {["Low", "Medium", "High"].map((v) => (
+                          <option key={v}>{v}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      What happened?
+                      <textarea
+                        required
+                        maxLength={2000}
+                        value={sheet.description}
+                        onChange={(e) =>
+                          setSheet({ ...sheet, description: e.target.value })
+                        }
+                      />
+                    </label>
+                    <button className="primary full">
+                      Record transaction issue
+                    </button>
+                  </form>
+                </>
+              )}
+              {sheet.type === "resolve-issue" &&
+                (() => {
+                  const issue = pickup.issues.find(
+                    (i) => i.id === sheet.issueId,
+                  );
+                  return (
+                    <>
+                      <h2>Review issue resolution</h2>
+                      <p className="body-copy">{issue.description}</p>
+                      <p className="body-copy spaced">
+                        Both participants must acknowledge a resolution.
+                        Resolving an issue does not complete the handoff; both
+                        participants then confirm it separately.
+                      </p>
+                      {issue.resolution[ownRole] ? (
+                        <p className="fine spaced">
+                          Your acknowledgment: {issue.resolution[ownRole].note}
+                        </p>
+                      ) : (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            if (
+                              applyEvent({
+                                type: "resolve_issue",
+                                issueId: issue.id,
+                                note: sheet.note,
+                              })
+                            ) {
+                              setSheet(null);
+                              notify(
+                                "Your resolution acknowledgment was recorded.",
+                              );
+                            }
+                          }}
+                        >
+                          <label className="field">
+                            Agreed resolution
+                            <textarea
+                              required
+                              maxLength={1000}
+                              value={sheet.note}
+                              onChange={(e) =>
+                                setSheet({ ...sheet, note: e.target.value })
+                              }
+                            />
+                          </label>
+                          <button className="primary full">
+                            Acknowledge resolution
+                          </button>
+                        </form>
+                      )}
+                      {issue.resolution[ownRole] &&
+                        !issue.resolution[otherActor] && (
+                          <button
+                            className="secondary full spaced"
+                            onClick={() => {
+                              if (
+                                applyEvent(
+                                  {
+                                    type: "resolve_issue",
+                                    issueId: issue.id,
+                                    note: "Demo participant acknowledges the proposed resolution.",
+                                  },
+                                  otherActor,
+                                )
+                              ) {
+                                setSheet(null);
+                                notify(
+                                  "Resolution acknowledged by both. Confirm the handoff separately.",
+                                );
+                              }
+                            }}
+                          >
+                            Demo: {otherActor} acknowledges resolution
+                          </button>
+                        )}
+                    </>
+                  );
+                })()}
               {sheet.type === "review" && (
                 <>
                   <h2>
@@ -3196,6 +3562,14 @@ function App() {
                   </button>
                   <button
                     className="sheet-option"
+                    onClick={() => setSheet({ type: "study" })}
+                  >
+                    <Clock />
+                    Prototype task testing
+                    <ChevronRight size={16} />
+                  </button>
+                  <button
+                    className="sheet-option"
                     onClick={() => setSheet({ type: "about" })}
                   >
                     <Info />
@@ -3230,6 +3604,13 @@ function App() {
                   </button>
                 </>
               )}
+              {sheet.type === "study" && (
+                <StudyPanel
+                  study={state.study}
+                  onChange={(study) => update({ study })}
+                  notify={notify}
+                />
+              )}
               {sheet.type === "about" && (
                 <>
                   <h2>Trojan Marketplace</h2>
@@ -3253,7 +3634,8 @@ function App() {
                   <h2>Start the demo over?</h2>
                   <p className="body-copy">
                     This removes your local listings, chats, photos, reviews,
-                    and reservations, then restores the sample screens.
+                    reservations, and task-testing records, then restores the
+                    sample screens.
                   </p>
                   <div className="action-row spaced">
                     <button
@@ -3265,7 +3647,7 @@ function App() {
                     <button
                       className="primary"
                       onClick={() => {
-                        setState(structuredClone(defaults));
+                        setState(normalizeState(defaults, INITIAL_ITEMS));
                         setScreen("verify");
                         setSheet(null);
                         setHistory([]);
@@ -3320,6 +3702,10 @@ function App() {
               {sheet.type === "report" && (
                 <>
                   <h2>Report a concern</h2>
+                  <p className="body-copy">
+                    For a transaction outcome issue, open its Pickup Details and
+                    choose Report a transaction issue.
+                  </p>
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();

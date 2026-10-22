@@ -134,6 +134,10 @@ test("listings can be edited, previewed, published, marked sold and deleted", as
   await page
     .getByLabel("Approximate pickup area", { exact: true })
     .fill("USC Village");
+  await page.getByLabel("Defects & wear", { exact: true }).selectOption("none");
+  await page
+    .getByLabel("Pickup neighborhood", { exact: true })
+    .selectOption("USC Village");
   await page
     .getByLabel("Upload furniture photos")
     .setInputFiles("public/images/chair.jpg");
@@ -184,7 +188,7 @@ test("inbox search, local messages, attachment and demo reply work", async ({
     page.getByText("See you Friday!", { exact: true }),
   ).toBeVisible();
 });
-test("pickup reschedule hides private location, seller simulation restores it, calendar exports and cancel works", async ({
+test("pickup reschedule requires renewed agreement, calendar exports and cancellation releases the item", async ({
   page,
 }) => {
   await verify(page);
@@ -199,8 +203,11 @@ test("pickup reschedule hides private location, seller simulation restores it, c
     .getByLabel("Proposed public meeting point")
     .fill("USC Village fountain");
   await page.getByRole("button", { name: "Propose new pickup" }).click();
+  await expect(page.locator(".meeting-card")).toContainText(
+    "Proposed · awaiting confirmation",
+  );
   await expect(page.locator(".exact-meeting")).toContainText(
-    "hidden until confirmation",
+    "USC Village fountain",
   );
   await page
     .getByRole("button", {
@@ -227,15 +234,19 @@ test("pickup reschedule hides private location, seller simulation restores it, c
     .getByRole("dialog")
     .getByRole("button", { name: "Cancel pickup", exact: true })
     .click();
-  await expect(
-    page.getByText("Pickup canceled", { exact: true }),
-  ).toBeVisible();
+  await expect(page.locator(".confirmation-box")).toContainText("Canceled");
   await page
     .getByRole("button", { name: "Request a new pickup", exact: true })
     .click();
-  await expect(
-    page.getByText("Pickup requested", { exact: true }),
-  ).toBeVisible();
+  await page
+    .getByLabel("Proposed public meeting point")
+    .fill("USC Village fountain");
+  await page
+    .getByRole("button", { name: "Send pickup proposal", exact: true })
+    .click();
+  await expect(page.locator(".confirmation-box")).toContainText(
+    "Pickup requested",
+  );
 });
 test("complete a purchase, leave a review, edit profile and reset demo", async ({
   page,
@@ -249,7 +260,16 @@ test("complete a purchase, leave a review, edit profile and reset demo", async (
     .getByRole("button", { name: "Mark as picked up", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Confirm pickup completed", exact: true })
+    .getByRole("button", { name: "Confirm my handoff", exact: true })
+    .click();
+  await expect(page.locator(".confirmation-box")).toContainText(
+    "Awaiting handoff confirmation",
+  );
+  await page
+    .getByRole("button", { name: "Demo: confirm seller handoff", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Leave a review", exact: true })
     .click();
   await page
     .getByRole("textbox", { name: "Your review", exact: true })
@@ -311,6 +331,12 @@ test("selling pickup uses buyer confirmation and notifications open their target
   await page
     .getByRole("button", { name: "Schedule or view pickup", exact: true })
     .click();
+  await page
+    .getByLabel("Proposed public meeting point")
+    .fill("West 28th Street public entrance");
+  await page
+    .getByRole("button", { name: "Send pickup proposal", exact: true })
+    .click();
   await expect(
     page.getByRole("button", {
       name: "Demo: simulate buyer confirmation",
@@ -323,9 +349,9 @@ test("selling pickup uses buyer confirmation and notifications open their target
       exact: true,
     })
     .click();
-  await expect(
-    page.getByText("Pickup confirmed", { exact: true }),
-  ).toBeVisible();
+  await expect(page.locator(".confirmation-box")).toContainText(
+    "Pickup confirmed",
+  );
   await page.getByRole("button", { name: "Go back", exact: true }).click();
   await page.getByRole("button", { name: "Go back", exact: true }).click();
   await page.getByRole("button", { name: "Activity", exact: true }).click();
@@ -333,6 +359,15 @@ test("selling pickup uses buyer confirmation and notifications open their target
   await expect(page.locator(".purchase-card")).toContainText(
     "Oak 3-tier bookshelf",
   );
+  await page.getByRole("button", { name: "Manage", exact: true }).click();
+  await page.getByRole("button", { name: "Mark sold", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Manage the transaction outcome",
+  );
+  await expect(page.locator(".managed-listing .compact-card")).toContainText(
+    "Reserved",
+  );
+  await page.getByRole("button", { name: "Go back", exact: true }).click();
   await page
     .getByRole("button", { name: "Notifications", exact: true })
     .click();

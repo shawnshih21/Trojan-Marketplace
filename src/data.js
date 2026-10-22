@@ -389,3 +389,57 @@ export const REVIEWS = [
     stars: 5,
   },
 ];
+
+// Explicit demo disclosures and deadlines; these are not live seller declarations.
+const seedDetails = {
+  desk: {
+    deadline: "2026-10-26",
+    defects: "Minor surface wear on the desktop.",
+  },
+  chair: { deadline: "2026-10-27", defects: "Light everyday wear; no tears." },
+  bookshelf: {
+    deadline: "2026-10-26",
+    defects: "A few light scuffs on the wood.",
+  },
+  loveseat: {
+    deadline: "2026-10-28",
+    defects: "Light wear on the upholstery.",
+  },
+  bed: {
+    deadline: "2026-10-27",
+    defects: "Light cosmetic wear on the metal frame.",
+  },
+  bedside: { deadline: "2026-10-22", defects: "" },
+  lamp: { deadline: "2026-10-28", defects: "" },
+};
+for (const item of INITIAL_ITEMS)
+  Object.assign(item, {
+    area: item.location,
+    defectState: seedDetails[item.id].defects ? "disclosed" : "none",
+    ...seedDetails[item.id],
+  });
+for (const pickup of INITIAL_PICKUPS) {
+  pickup.version = 1;
+  pickup.issues = [];
+  pickup.handoff = {
+    buyer: {
+      response: pickup.status === "completed" ? "confirmed" : "pending",
+      at: pickup.status === "completed" ? "2026-10-20T21:35:00Z" : null,
+    },
+    seller: {
+      response: pickup.status === "completed" ? "confirmed" : "pending",
+      at: pickup.status === "completed" ? "2026-10-20T21:36:00Z" : null,
+    },
+  };
+  pickup.history = [
+    {
+      type:
+        pickup.status === "completed"
+          ? "seeded_two_party_completion"
+          : "seeded_confirmed_pickup",
+      actor: "demo",
+      at: "2026-10-22T19:00:00Z",
+      version: 1,
+    },
+  ];
+}
